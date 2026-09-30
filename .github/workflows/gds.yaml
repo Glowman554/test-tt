@@ -18,6 +18,22 @@ jobs:
         with:
           pdk: sky130A
 
+      - name: Check routed antenna violations
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv
+          from pathlib import Path
+
+          path = Path("runs/wokwi/final/metrics.csv")
+          with path.open(newline="") as metrics_file:
+              metrics = dict(csv.reader(metrics_file))
+          count = int(metrics["route__antenna_violation__count"])
+          print(f"Routed antenna violations: {count}")
+          if count != 0:
+              raise SystemExit("Routed antenna violations remain")
+          PY
+
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
