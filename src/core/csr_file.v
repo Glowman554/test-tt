@@ -1,4 +1,7 @@
-module CsrFile (
+module CsrFile #(
+    parameter ENABLE_MMU = 1,
+    parameter ENABLE_PMP = 1
+) (
     input clk,
     input reset,
     input csr_valid,
@@ -83,6 +86,7 @@ module CsrFile (
     wire pmp_known;
     wire [31:0] pmp_read;
 
+    generate if (ENABLE_PMP) begin : with_pmp
     PmpRegisters pmp (
         .clk(clk),
         .reset(reset),
@@ -94,6 +98,12 @@ module CsrFile (
         .configuration(pmp_configuration),
         .addresses(pmp_addresses)
     );
+    end else begin : without_pmp
+        assign pmp_known = 1'b0;
+        assign pmp_read = 32'd0;
+        assign pmp_configuration = 64'd0;
+        assign pmp_addresses = 256'd0;
+    end endgenerate
 
     wire delegate_trap = privilege != 3 && (trap_interrupt ? mideleg[trap_cause] : medeleg[trap_cause]);
     wire [31:0] target_vector = delegate_trap ? stvec : mtvec;
@@ -102,7 +112,7 @@ module CsrFile (
     assign trap_vector = {target_vector[31:2], 2'b0} + ((trap_interrupt && target_vector[1:0] == 1) ? {25'd0, trap_cause, 2'b0} : 32'd0);
     assign return_pc = system_operation == 1 ? mepc : sepc;
 
-    assign satp_value = satp;
+    assign satp_value = ENABLE_MMU ? satp : 32'd0;
     assign status_value = mstatus;
     assign data_privilege = privilege == 3 && mstatus[17] ? mstatus[12:11] : privilege;
 
@@ -136,7 +146,7 @@ module CsrFile (
             12'h142: csr_rdata = scause;
             12'h143: csr_rdata = stval;
             12'h144: csr_rdata = mip & mideleg;
-            12'h180: csr_rdata = satp;
+            12'h180: csr_rdata = ENABLE_MMU ? satp : 32'd0;
             12'h300: csr_rdata = mstatus;
             12'h301: csr_rdata = 32'h40141105;  // fixed RV32 IMAC, S, U
             12'h302: csr_rdata = medeleg;
@@ -279,7 +289,7 @@ module CsrFile (
                     12'h142: scause <= csr_wdata;
                     12'h143: stval <= csr_wdata;
                     12'h144: software_pending <= (software_pending & ~(mideleg & 2)) | (csr_wdata & mideleg & 2);
-                    12'h180: satp <= csr_wdata & 32'h803fffff;  // ASIDLEN=0
+                    12'h180: if (ENABLE_MMU) satp <= csr_wdata & 32'h803fffff;  // ASIDLEN=0
                     12'h300: mstatus <= normalize_status(csr_wdata);
                     12'h302: medeleg <= csr_wdata & DELEG_EXCEPTION_MASK;
                     12'h303: mideleg <= csr_wdata & DELEG_IRQ_MASK;

@@ -6,6 +6,8 @@ the Tiny Tapeout CPU RTL. The Verilator testbench loads a test ELF into a
 the CLINT, PLIC, and test interrupt register. This verifies the CPU and MMU;
 `../test/run_rtl_tests.sh` separately checks the SPI flash boot path and PSRAM
 interface.
+The architectural testbench uses the default `ENABLE_MMU=1` and
+`ENABLE_PMP=1` core settings; the Tiny Tapeout top disables both.
 
 Run from the repository root with Verilator, Python 3, `tqdm`, RISC-V GNU
 binutils, and a C++ compiler installed:

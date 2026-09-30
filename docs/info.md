@@ -1,7 +1,8 @@
 ## Inferno RISC-V SPI/PSRAM SoC
 
-This port keeps the RV32IMAC CPU, Sv32 MMU, PMP, CLINT, and a one-source PLIC.
-The TLB has 32 entries. It removes the FPGA DDR3 controller, DDR cache, and
+This port keeps the original RV32IMAC CPU, CLINT, and one-source PLIC. The
+optional Sv32 MMU and PMP remain in the source but are disabled in the Tiny
+Tapeout build. Enabling the MMU selects a 32-entry TLB. It removes the FPGA DDR3 controller, DDR cache, and
 embedded SRAM. One UART and one software-controlled SPI peripheral remain.
 
 The CPU resets at address zero, which is mapped to the read-only 16 MiB SPI
@@ -46,7 +47,7 @@ Program `flash.bin` into the QSPI Pmod flash before releasing reset.
 
 `test/run_rtl_tests.sh` runs the serial memory transaction tests, a reset
 fetch test, and a flash-to-PSRAM boot test. The tests use Icarus Verilog and
-a RISC-V cross toolchain. The current `8x2` tile setting is provisional:
-ASIC synthesis, placement, and timing have not been run. The original 128 MiB
+a RISC-V cross toolchain. The current `8x2` tile setting needs a new GDS run
+with the MMU and PMP disabled. The original 128 MiB
 DDR software image and 32 KiB SRAM firmware need relinking and memory-size
 changes before they can run on this 16 MiB port.

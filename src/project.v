@@ -37,7 +37,10 @@ module tt_um_toxicfox_inferno (
     wire retire_valid;
     wire trap_valid;
 
-    RiscV #(.RESET_PC(32'h00000000), .TLB_ENTRIES(32)) cpu (
+    RiscV #(
+        .RESET_PC(32'h00000000), .TLB_ENTRIES(32),
+        .ENABLE_MMU(0), .ENABLE_PMP(0)
+    ) cpu (
         .clk(clk), .reset(reset), .valid(valid), .address(address),
         .write(write), .wdata(wdata), .wstrb(wstrb), .kind(kind),
         .ready(ready), .rdata(rdata), .error(error),

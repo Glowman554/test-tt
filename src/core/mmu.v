@@ -1,5 +1,7 @@
 module Mmu #(
-    parameter TLB_ENTRIES = 32
+    parameter TLB_ENTRIES = 32,
+    parameter MEM_WORDS = 0,
+    parameter ENABLE_PMP = 1
 ) (
     input clk,
     input reset,
@@ -89,14 +91,10 @@ module Mmu #(
     localparam TLB_STORAGE = TLB_ENTRIES > 0 ? TLB_ENTRIES : 1;
     localparam TLB_INDEX_BITS = TLB_ENTRIES > 1 ? $clog2(TLB_ENTRIES) : 1;
     localparam [31:0] TLB_LAST_INDEX = TLB_STORAGE - 1;
-    // For the 32-slot direct-mapped TLB, the low five VPN bits are already
-    // encoded by the slot index and need not be stored in every entry.
-    localparam TLB_TAG_BITS = TLB_ENTRIES == 32 ? 15 : 20;
-    localparam TLB_RECORD_BITS = 4 + TLB_TAG_BITS + 22 + 8;
 
-    (* ram_style = "block", syn_ramstyle = "block_ram" *) reg [TLB_RECORD_BITS-1:0] tlb_mem[0:TLB_STORAGE-1];
-    reg [TLB_RECORD_BITS-1:0] tlb_record;
-    reg [3:0] tlb_generation;
+    (* ram_style = "block", syn_ramstyle = "block_ram" *) reg [63:0] tlb_mem[0:TLB_STORAGE-1];
+    reg [63:0] tlb_record;
+    reg [13:0] tlb_generation;
     reg tlb_clearing;
     reg [TLB_INDEX_BITS-1:0] tlb_clear_index;
 
@@ -125,49 +123,45 @@ module Mmu #(
             tlb_record <= tlb_mem[lookup_index];
         end
         if (!reset && tlb_clearing) begin
-            tlb_mem[tlb_clear_index] <= {TLB_RECORD_BITS{1'b0}};
+            tlb_mem[tlb_clear_index] <= 64'd0;
         end else if (!reset && fill) begin
-            tlb_mem[fill_index] <= {tlb_generation, va[31 -: TLB_TAG_BITS], leaf_ppn, rdata[7:0]};
+            tlb_mem[fill_index] <= {tlb_generation, va[31:12], leaf_ppn, rdata[7:0]};
         end
     end
 
     wire tlb_hit = TLB_ENTRIES > 0 && !tlb_clearing && !invalidate &&
         !discard_fill && walk_satp == satp &&
-        tlb_record[TLB_RECORD_BITS-1 -: 4] == tlb_generation &&
-        tlb_record[30 +: TLB_TAG_BITS] == va[31 -: TLB_TAG_BITS];
+        tlb_record[63:50] == tlb_generation && tlb_record[49:30] == va[31:12];
     wire [33:0] hit_address = {tlb_record[29:8], va[11:0]};
     wire hit_denied = page_denied(tlb_record[7:0], mode, fetch, needs_write,
                                  !store || rmw, permit_sum, permit_mxr);
 
-    reg [2:0] pmp_index;
-    wire [7:0] pmp_cfg = pmp_configuration[pmp_index*8 +: 8];
-    wire [31:0] pmp_addr = pmp_addresses[pmp_index*32 +: 32];
-    wire [31:0] pmp_prev_addr = pmp_index == 0 ? 32'd0 :
-        pmp_addresses[(pmp_index-1'b1)*32 +: 32];
-    wire pmp_match;
-    wire pmp_permitted;
+    wire pmp_allowed;
 
     function is_ram(input [33:0] a);
-        is_ram = a[33:32] == 0 && a >= 34'h040000000 && a < 34'h041000000;
+        is_ram = a[33:32] == 0 && (a < MEM_WORDS * 4 ||
+            (a >= 34'h040000000 && a < 34'h041000000));
     endfunction
 
-    wire walk_denied = !is_ram(pte_address);
-    wire access_denied = atomic && !is_ram(pa);
+    wire walk_denied = !pmp_allowed || !is_ram(pte_address);
+    wire access_denied = !pmp_allowed || (atomic && !is_ram(pa));
     wire sc_failed = sc && (!reserved_valid || reserved_address != {pa[33:2], 2'b0});
 
-    PmpEntryCheck protection (
-        .configuration(pmp_cfg),
-        .encoded(pmp_addr),
-        .previous_encoded(pmp_prev_addr),
+    generate if (ENABLE_PMP) begin : with_pmp
+    PmpCheck protection (
+        .configuration(pmp_configuration),
+        .addresses(pmp_addresses),
         .address(state == WALK_CHECK ? pte_address : pa),
         .size(state == WALK_CHECK ? 2'd2 : size),
         .privilege(state == WALK_CHECK ? 2'd1 : mode),
         .execute(state != WALK_CHECK && fetch),
         .read_access(state == WALK_CHECK || (!fetch && (!store || rmw))),
         .write_access(state != WALK_CHECK && needs_write),
-        .region_match(pmp_match),
-        .permitted(pmp_permitted)
+        .allowed(pmp_allowed)
     );
+    end else begin : without_pmp
+        assign pmp_allowed = 1'b1;
+    end endgenerate
 
     assign req_ready = !reset && state == RESPONSE && req_valid;
     assign translated_address = pa;
@@ -211,13 +205,12 @@ module Mmu #(
             req_error <= 0;
             req_page_fault <= 0;
             sc_success <= 0;
-            tlb_generation <= 4'd1;
+            tlb_generation <= 14'd1;
             tlb_clearing <= TLB_ENTRIES > 0;
             tlb_clear_index <= 0;
             cached_satp <= 0;
             walk_satp <= 0;
             discard_fill <= 0;
-            pmp_index <= 0;
         end else begin
             cached_satp <= satp;
 
@@ -233,7 +226,7 @@ module Mmu #(
             if (invalidate) begin
                 if (TLB_ENTRIES > 0 && !tlb_clearing) begin
                     if (&tlb_generation) begin
-                        tlb_generation <= 4'd1;
+                        tlb_generation <= 14'd1;
                         tlb_clearing <= 1;
                         tlb_clear_index <= 0;
                     end else begin
@@ -300,17 +293,8 @@ module Mmu #(
                 WALK_CHECK: begin
                     if (walk_denied) begin
                         fault(0);
-                    end else if (pmp_match && !pmp_permitted) begin
-                        fault(0);
-                    end else if (pmp_match || pmp_index == 7) begin
-                        if (!pmp_match) begin
-                            fault(0); // A page-table walk runs in supervisor mode.
-                        end else begin
-                            pmp_index <= 0;
-                            state <= WALK;
-                        end
                     end else begin
-                        pmp_index <= pmp_index + 1'b1;
+                        state <= WALK;
                     end
                 end
 
@@ -338,19 +322,13 @@ module Mmu #(
                 end
 
                 ACCESS_CHECK: begin
-                    if (access_denied || size == 3 || (pmp_match && !pmp_permitted) ||
-                        (!pmp_match && pmp_index == 7 && mode != 3)) begin
+                    if (access_denied) begin
                         fault(0);
-                    end else if (pmp_match || pmp_index == 7) begin
-                        pmp_index <= 0;
-                        if (sc_failed) begin
-                            sc_success <= 0;
-                            state <= RESPONSE;
-                        end else begin
-                            state <= ACCESS;
-                        end
+                    end else if (sc_failed) begin
+                        sc_success <= 0;
+                        state <= RESPONSE;
                     end else begin
-                        pmp_index <= pmp_index + 1'b1;
+                        state <= ACCESS;
                     end
                 end
 

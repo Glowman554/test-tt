@@ -1,6 +1,8 @@
 module RiscV #(
     parameter [31:0] RESET_PC = 0,
-    parameter TLB_ENTRIES = 32
+    parameter TLB_ENTRIES = 32,
+    parameter ENABLE_MMU = 1,
+    parameter ENABLE_PMP = 1
 ) (
     input clk,
     input reset,
@@ -81,8 +83,11 @@ module RiscV #(
             (csr_address == 12'h180 || csr_address == 12'h3a0 || csr_address == 12'h3a1 ||
              (csr_address >= 12'h3b0 && csr_address <= 12'h3b7)));
 
+    generate if (ENABLE_MMU) begin : translated_memory
     Mmu #(
-        .TLB_ENTRIES(TLB_ENTRIES)
+        .TLB_ENTRIES(TLB_ENTRIES),
+        .MEM_WORDS(0),
+        .ENABLE_PMP(ENABLE_PMP)
     ) memory (
         .clk(clk),
         .reset(reset),
@@ -121,6 +126,23 @@ module RiscV #(
         .rdata(rdata),
         .error(error)
     );
+    end else begin : direct_memory
+    BareMemory memory (
+        .clk(clk), .reset(reset), .req_valid(engine_valid),
+        .req_address(access_address),
+        .req_write(engine_write), .req_wdata(engine_wdata),
+        .req_wstrb(engine_wstrb), .req_kind(engine_kind),
+        .req_atomic(access_atomic),
+        .req_sc(access_sc), .sc_reserved_valid(sc_reserved_valid),
+        .sc_reserved_address(sc_reserved_address),
+        .req_ready(engine_ready), .req_rdata(engine_rdata),
+        .req_error(engine_error), .req_page_fault(engine_page_fault),
+        .sc_success(sc_success), .translated_address(translated_address),
+        .valid(valid), .address(address), .write(write),
+        .wdata(wdata), .wstrb(wstrb), .kind(kind),
+        .ready(ready), .rdata(rdata), .error(error)
+    );
+    end endgenerate
 
     ExecutionUnit #(
         .RESET_PC(RESET_PC)
@@ -178,7 +200,7 @@ module RiscV #(
         .pc(pc)
     );
 
-    CsrFile control (
+    CsrFile #(.ENABLE_MMU(ENABLE_MMU), .ENABLE_PMP(ENABLE_PMP)) control (
         .clk(clk),
         .reset(reset),
         .csr_valid(csr_valid),
