@@ -13,4 +13,5 @@ test/results.xml
 test/gate_level_netlist.v
 boot/build/
 test/build/
+verification/build/
 __pycache__/

@@ -1,0 +1,3 @@
+# Tests that fail for reasons outside the core, one per line: <test-name>  <reason>
+Sm_mcsr_cntr-00  cp_mcycle_wraparound expects mcycle < 1000 after a ~300-instruction loop; Inferno runs at ~7 CPI (reads 0x840 after 2114 cycles, wrap itself is correct)
+PMPSm_cfg_A_tor_zero-00  test stores to address 0; Tiny Tapeout maps address 0 to read-only SPI flash

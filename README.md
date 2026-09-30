@@ -18,9 +18,14 @@ The tests require Icarus Verilog, Python 3, and a
 `riscv64-unknown-elf-` cross toolchain. The standard Tiny Tapeout cocotb
 smoke test remains in `test/` for its CI flow.
 
+The RISC-V architectural verification harness is in
+[verification/](verification/README.md). It runs generated ISA tests against
+the ported CPU with a 16 MiB PSRAM model.
+
 The `8x2` tile selection is the largest allowed by the SKY template. No ASIC
-synthesis or GDS result has established whether the full CPU fits or meets
-25 MHz timing.
+placement or GDS result has established whether the full CPU fits or meets
+25 MHz timing. A local SKY130 synthesis estimate after area optimization is
+about 271,000 µm² of standard cells.
 
 The CPU sources come from the adjacent `inferno-riscv-rtl` repository. The
 template was cloned from
