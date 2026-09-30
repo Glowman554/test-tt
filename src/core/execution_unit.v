@@ -88,6 +88,33 @@ module ExecutionUnit #(
     wire [31:0] imm_u = {instruction[31:12], 12'b0};
     wire [31:0] imm_j = {{11{instruction[31]}}, instruction[31], instruction[19:12], instruction[20], instruction[30:21], 1'b0};
 
+    // These operations are mutually exclusive in EXECUTE, so one adder can
+    // serve register arithmetic and effective-address generation.
+    wire register_arithmetic = instruction[6:0] == 7'h33;
+    wire subtract = register_arithmetic && funct3 == 0 && funct7 == 7'h20;
+    wire [31:0] add_operand = register_arithmetic ? b :
+                              instruction[6:0] == 7'h23 ? imm_s : imm_i;
+    wire [31:0] data_sum = a + (add_operand ^ {32{subtract}}) + subtract;
+    wire [31:0] pc_offset = instruction[6:0] == 7'h17 ? imm_u :
+                            instruction[6:0] == 7'h6f ? imm_j : imm_b;
+    wire [31:0] pc_sum = pc + pc_offset;
+
+    function [31:0] reverse_bits(input [31:0] value);
+        integer bit_index;
+        begin
+            for (bit_index = 0; bit_index < 32; bit_index = bit_index + 1)
+                reverse_bits[bit_index] = value[31-bit_index];
+        end
+    endfunction
+
+    wire shift_left = funct3 == 1;
+    wire shift_arithmetic = funct3 == 5 && funct7 == 7'h20;
+    wire [4:0] shift_amount = register_arithmetic ? b[4:0] : instruction[24:20];
+    wire [31:0] shift_input = shift_left ? reverse_bits(a) : a;
+    wire signed [32:0] shift_signed_input = {shift_arithmetic && a[31], shift_input};
+    wire [31:0] shift_output = shift_signed_input >>> shift_amount;
+    wire [31:0] shift_result = shift_left ? reverse_bits(shift_output) : shift_output;
+
     reg illegal;
     reg reg_write;
     reg memory_op;
@@ -207,13 +234,13 @@ module ExecutionUnit #(
 
             7'h17: begin
                 reg_write = 1;
-                result = pc + imm_u;
+                result = pc_sum;
             end
 
             7'h6f: begin
                 reg_write = 1;
                 result = seq_pc;
-                next_pc = pc + imm_j;
+                next_pc = pc_sum;
                 jump = 1;
             end
 
@@ -224,7 +251,7 @@ module ExecutionUnit #(
 
                 reg_write = 1;
                 result = seq_pc;
-                next_pc = (a + imm_i) & 32'hfffffffe;
+                next_pc = data_sum & 32'hfffffffe;
                 jump = 1;
             end
 
@@ -240,14 +267,14 @@ module ExecutionUnit #(
                 endcase
 
                 if (branch_taken) begin
-                    next_pc = pc + imm_b;
+                    next_pc = pc_sum;
                     jump = 1;
                 end
             end
 
             7'h03: begin
                 memory_op = 1;
-                effective_address = a + imm_i;
+                effective_address = data_sum;
                 if (funct3 != 0 && funct3 != 1 && funct3 != 2 && funct3 != 4 && funct3 != 5) begin
                     illegal = 1;
                 end
@@ -256,7 +283,7 @@ module ExecutionUnit #(
             7'h23: begin
                 memory_op = 1;
                 store = 1;
-                effective_address = a + imm_s;
+                effective_address = data_sum;
                 if (funct3 > 2) begin
                     illegal = 1;
                 end
@@ -285,7 +312,7 @@ module ExecutionUnit #(
             7'h13: begin
                 reg_write = 1;
                 case (funct3)
-                    0: result = a + imm_i;
+                    0: result = data_sum;
                     2: result = $signed(a) < $signed(imm_i);
                     3: result = a < imm_i;
                     4: result = a ^ imm_i;
@@ -293,7 +320,7 @@ module ExecutionUnit #(
                     7: result = a & imm_i;
 
                     1: begin
-                        result = a << instruction[24:20];
+                        result = shift_result;
                         if (funct7 != 0) begin
                             illegal = 1;
                         end
@@ -301,9 +328,9 @@ module ExecutionUnit #(
 
                     5: begin
                         if (funct7 == 0) begin
-                            result = a >> instruction[24:20];
+                            result = shift_result;
                         end else if (funct7 == 7'h20) begin
-                            result = $signed(a) >>> instruction[24:20];
+                            result = shift_result;
                         end else begin
                             illegal = 1;
                         end
@@ -319,24 +346,24 @@ module ExecutionUnit #(
                     case (funct3)
                         0: begin
                             if (funct7 == 0) begin
-                                result = a + b;
+                                result = data_sum;
                             end else if (funct7 == 7'h20) begin
-                                result = a - b;
+                                result = data_sum;
                             end else begin
                                 illegal = 1;
                             end
                         end
 
-                        1: result = a << b[4:0];
+                        1: result = shift_result;
                         2: result = $signed(a) < $signed(b);
                         3: result = a < b;
                         4: result = a ^ b;
 
                         5: begin
                             if (funct7 == 0) begin
-                                result = a >> b[4:0];
+                                result = shift_result;
                             end else if (funct7 == 7'h20) begin
-                                result = $signed(a) >>> b[4:0];
+                                result = shift_result;
                             end else begin
                                 illegal = 1;
                             end

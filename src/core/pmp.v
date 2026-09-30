@@ -79,6 +79,58 @@ module PmpRegisters (
     end
 endmodule
 
+// One PMP entry is evaluated per clock by the MMU.  This shares the NAPOT
+// mask and range comparators across all eight entries.
+module PmpEntryCheck (
+    input [7:0] configuration,
+    input [31:0] encoded,
+    input [31:0] previous_encoded,
+    input [33:0] address,
+    input [1:0] size,
+    input [1:0] privilege,
+    input execute,
+    input read_access,
+    input write_access,
+    output region_match,
+    output permitted
+);
+    wire [35:0] first_byte = {2'b00, address};
+    wire [35:0] end_byte = first_byte + (36'd1 << size);
+    wire [35:0] last_byte = end_byte - 1'b1;
+    wire [35:0] top = {2'b00, encoded, 2'b00};
+    wire [35:0] bottom = {2'b00, previous_encoded, 2'b00};
+    wire [35:0] napot_mask;
+    genvar mask_bit;
+
+    assign napot_mask[2:0] = 3'b111;
+    assign napot_mask[35] = 1'b0;
+    generate
+        for (mask_bit = 3; mask_bit < 35; mask_bit = mask_bit + 1) begin : prefix
+            assign napot_mask[mask_bit] = &encoded[mask_bit-3:0];
+        end
+    endgenerate
+
+    wire [35:0] napot_base = top & ~napot_mask;
+    wire napot_first = (first_byte & ~napot_mask) == napot_base;
+    wire napot_last = (last_byte & ~napot_mask) == napot_base;
+    wire na4_first = first_byte[35:2] == {2'b00, encoded};
+    wire na4_last = last_byte[35:2] == {2'b00, encoded};
+    wire tor_valid = bottom < top;
+    wire tor_overlap = tor_valid && first_byte < top && end_byte > bottom;
+    wire tor_inside = first_byte >= bottom && end_byte <= top;
+    wire region_inside = configuration[4:3] == 2'b01 ? tor_inside :
+                         configuration[4:3] == 2'b10 ? (na4_first && na4_last) :
+                         (napot_first && napot_last);
+
+    assign region_match = configuration[4:3] == 2'b01 ? tor_overlap :
+                          configuration[4:3] == 2'b10 ? (na4_first || na4_last) :
+                          configuration[4:3] == 2'b11 ? (napot_first || napot_last) : 1'b0;
+    assign permitted = region_inside && size != 3 && privilege != 2 &&
+        ((privilege == 3 && !configuration[7]) ||
+         ((!execute || configuration[2]) && (!read_access || configuration[0]) &&
+          (!write_access || configuration[1])));
+endmodule
+
 module PmpCheck (
     input [63:0] configuration,
     input [255:0] addresses,
@@ -92,71 +144,61 @@ module PmpCheck (
 );
     integer entry;
     reg found;
-
-    wire [35:0] napot_mask[0:7];
+    wire [35:0] first_byte = {2'b00, address};
+    wire [35:0] end_byte = first_byte + (36'd1 << size);
+    wire [35:0] last_byte = end_byte - 1'b1;
+    wire [7:0] region_match;
+    wire [7:0] permitted;
     genvar region;
     genvar mask_bit;
 
     generate
-        for (region = 0; region < 8; region = region + 1) begin : napot_masks
-            assign napot_mask[region][2:0] = 3'b111;
-            assign napot_mask[region][35] = 1'b0;
-            for (mask_bit = 3; mask_bit < 35; mask_bit = mask_bit + 1) begin : prefix
-                assign napot_mask[region][mask_bit] = &addresses[region*32 +: mask_bit-2];
+        for (region = 0; region < 8; region = region + 1) begin : regions
+            wire [7:0] cfg = configuration[region*8 +: 8];
+            wire [31:0] encoded = addresses[region*32 +: 32];
+            wire [35:0] top = {2'b00, encoded, 2'b00};
+            wire [35:0] bottom;
+            if (region == 0) begin : first
+                assign bottom = 0;
+            end else begin : later
+                assign bottom = {2'b00, addresses[(region-1)*32 +: 32], 2'b00};
             end
+
+            wire [35:0] napot_mask;
+            assign napot_mask[2:0] = 3'b111;
+            assign napot_mask[35] = 1'b0;
+            for (mask_bit = 3; mask_bit < 35; mask_bit = mask_bit + 1) begin : prefix
+                assign napot_mask[mask_bit] = &encoded[mask_bit-3:0];
+            end
+            wire [35:0] napot_base = top & ~napot_mask;
+            wire napot_first = (first_byte & ~napot_mask) == napot_base;
+            wire napot_last = (last_byte & ~napot_mask) == napot_base;
+            wire na4_first = first_byte[35:2] == {2'b00, encoded};
+            wire na4_last = last_byte[35:2] == {2'b00, encoded};
+            wire tor_valid = bottom < top;
+            wire tor_overlap = tor_valid && first_byte < top && end_byte > bottom;
+            wire tor_inside = first_byte >= bottom && end_byte <= top;
+
+            assign region_match[region] = cfg[4:3] == 2'b01 ? tor_overlap :
+                                     cfg[4:3] == 2'b10 ? (na4_first || na4_last) :
+                                     cfg[4:3] == 2'b11 ? (napot_first || napot_last) : 1'b0;
+            wire region_inside = cfg[4:3] == 2'b01 ? tor_inside :
+                          cfg[4:3] == 2'b10 ? (na4_first && na4_last) :
+                          (napot_first && napot_last);
+            assign permitted[region] = region_inside &&
+                ((privilege == 3 && !cfg[7]) ||
+                 ((!execute || cfg[2]) && (!read_access || cfg[0]) &&
+                  (!write_access || cfg[1])));
         end
     endgenerate
-
-    reg [7:0] cfg;
-    reg [31:0] encoded;
-    reg [35:0] lower;
-    reg [35:0] upper;
-    reg [35:0] first_byte;
-    reg [35:0] end_byte;
 
     always @(*) begin
         allowed = privilege == 3;
         found = 0;
-        cfg = 0;
-        encoded = 0;
-        lower = 0;
-        upper = 0;
-        first_byte = {2'd0, address};
-        end_byte = first_byte + (36'd1 << size);
-
         for (entry = 0; entry < 8; entry = entry + 1) begin
-            cfg = configuration[entry*8 +: 8];
-            encoded = addresses[entry*32 +: 32];
-            lower = 0;
-            upper = 0;
-
-            case (cfg[4:3])
-                1: begin
-                    if (entry != 0) begin
-                        lower = {2'd0, addresses[(entry-1)*32 +: 32], 2'd0};
-                    end
-
-                    upper = {2'd0, encoded, 2'd0};
-                end
-
-                2: begin
-                    lower = {2'd0, encoded, 2'd0};
-                    upper = lower + 4;
-                end
-
-                3: begin
-                    lower = {2'd0, encoded, 2'd0} & ~napot_mask[entry];
-                    upper = ({2'd0, encoded, 2'd0} | napot_mask[entry]) + 36'd1;
-                end
-
-                default: ;
-            endcase
-
-            if (!found && cfg[4:3] != 0 && lower < upper && first_byte < upper && end_byte > lower) begin
+            if (!found && region_match[entry]) begin
                 found = 1;
-                allowed = first_byte >= lower && end_byte <= upper &&
-                    ((privilege == 3 && !cfg[7]) ||
-                     ((!execute || cfg[2]) && (!read_access || cfg[0]) && (!write_access || cfg[1])));
+                allowed = permitted[entry];
             end
         end
 

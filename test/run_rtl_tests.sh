@@ -13,6 +13,12 @@ python3 boot/make_image.py boot/build/boot.bin test/build/payload.bin \
 iverilog -g2012 -s serial_memory_tb -o test/build/serial_memory_tb.vvp \
     test/serial_memory_tb.v src/modules/serial_memory.v
 vvp test/build/serial_memory_tb.vvp
+iverilog -g2012 -s pmp_equivalence_tb -o test/build/pmp_equivalence_tb.vvp \
+    test/pmp_equivalence_tb.v test/pmp_reference.v src/core/pmp.v
+vvp test/build/pmp_equivalence_tb.vvp
+iverilog -g2012 -s mmu_tlb_tb -o test/build/mmu_tlb_tb.vvp \
+    test/mmu_tlb_tb.v src/core/mmu.v src/core/pmp.v
+vvp test/build/mmu_tlb_tb.vvp
 for test_name in platform_tb boot_tb boot_loader_tb; do
     iverilog -g2012 -s "$test_name" -o "test/build/$test_name.vvp" \
         "test/$test_name.v" src/project.v src/core/*.v src/modules/*.v
