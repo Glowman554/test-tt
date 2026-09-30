@@ -1,30 +1,43 @@
 # Tiny Tapeout project information
 project:
-  title:        ""      # Project title
-  author:       ""      # Your name
+  title:        "Inferno RISC-V SPI/PSRAM"
+  author:       "ToxicFox"
   discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  ""      # One line description of what your project does
+  description:  "RV32IMAC/Sv32 CPU with SPI flash boot and external PSRAM"
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
-  clock_hz:     0       # Clock frequency in Hz (or 0 if not applicable)
+  clock_hz:     25000000
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
-  tiles: "1x1"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
+  tiles: "8x2"          # Provisional; verify with LibreLane before submission.
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username:
-  top_module:  "tt_um_example"
+  top_module:  "tt_um_toxicfox_inferno"
 
   # List your project's source files here.
   # Source files must be in ./src and you must list each source file separately, one per line.
   # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
   source_files:
     - "project.v"
+    - "core/core.v"
+    - "core/csr_file.v"
+    - "core/decompress.v"
+    - "core/execution_unit.v"
+    - "core/mmu.v"
+    - "core/muldiv.v"
+    - "core/pmp.v"
+    - "modules/platform.v"
+    - "modules/serial_memory.v"
+    - "modules/uart.v"
+    - "modules/spi.v"
+    - "modules/clint.v"
+    - "modules/plic.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
 pinout:
   # Inputs
-  ui[0]: ""
-  ui[1]: ""
+  ui[0]: "SPI peripheral MISO"
+  ui[1]: "UART RX"
   ui[2]: ""
   ui[3]: ""
   ui[4]: ""
@@ -33,24 +46,24 @@ pinout:
   ui[7]: ""
 
   # Outputs
-  uo[0]: ""
-  uo[1]: ""
-  uo[2]: ""
-  uo[3]: ""
-  uo[4]: ""
-  uo[5]: ""
+  uo[0]: "UART TX"
+  uo[1]: "SPI peripheral SCK"
+  uo[2]: "SPI peripheral MOSI"
+  uo[3]: "SPI peripheral CS_N"
+  uo[4]: "Instruction retired"
+  uo[5]: "Trap"
   uo[6]: ""
   uo[7]: ""
 
   # Bidirectional pins
-  uio[0]: ""
-  uio[1]: ""
-  uio[2]: ""
-  uio[3]: ""
-  uio[4]: ""
-  uio[5]: ""
-  uio[6]: ""
-  uio[7]: ""
+  uio[0]: "QSPI Pmod flash CS_N"
+  uio[1]: "QSPI Pmod SD0/MOSI"
+  uio[2]: "QSPI Pmod SD1/MISO"
+  uio[3]: "QSPI Pmod SCK"
+  uio[4]: "QSPI Pmod SD2, held high"
+  uio[5]: "QSPI Pmod SD3, held high"
+  uio[6]: "QSPI Pmod PSRAM A CS_N"
+  uio[7]: "QSPI Pmod PSRAM B CS_N"
 
 # Do not change!
 yaml_version: 6
