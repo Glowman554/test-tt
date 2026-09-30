@@ -18,8 +18,9 @@ The tests require Icarus Verilog, Python 3, and a
 `riscv64-unknown-elf-` cross toolchain. The standard Tiny Tapeout cocotb
 smoke test remains in `test/` for its CI flow.
 
-The `8x2` tile selection is a starting point. No ASIC synthesis or GDS
-result has established whether the full CPU fits or meets 25 MHz timing.
+The `8x2` tile selection is the largest allowed by the SKY template. No ASIC
+synthesis or GDS result has established whether the full CPU fits or meets
+25 MHz timing.
 
 The CPU sources come from the adjacent `inferno-riscv-rtl` repository. The
 template was cloned from
