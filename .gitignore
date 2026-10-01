@@ -6,6 +6,8 @@
 runs
 harden/platform/runs/
 harden/platform/build.log
+harden/execution_unit/runs/
+harden/execution_unit/build.log
 tt_submission
 src/user_config.json
 src/config_merged.json
