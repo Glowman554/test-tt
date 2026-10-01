@@ -24,9 +24,11 @@ the ported CPU with a 16 MiB PSRAM model. That harness enables the optional
 MMU and PMP. The Tiny Tapeout top module sets `ENABLE_MMU=0` and
 `ENABLE_PMP=0`; the enabled MMU uses 32 TLB entries.
 
-The `8x2` tile selection is the largest allowed by the SKY template. No ASIC
-placement or GDS result has established whether the full CPU fits or meets
-25 MHz timing with MMU and PMP disabled.
+The current top-level selection is `8x2`; the SKY template also defines an
+`8x4` tile size. No successful full-chip GDS result has established whether
+the complete CPU fits or meets 25 MHz timing with MMU and PMP disabled.
+The standalone platform hardening run is documented in
+[harden/platform/](harden/platform/README.md).
 
 The CPU sources come from the adjacent `inferno-riscv-rtl` repository. The
 template was cloned from

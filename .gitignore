@@ -4,6 +4,8 @@
 *.fst
 *.fst.hier
 runs
+harden/platform/runs/
+harden/platform/build.log
 tt_submission
 src/user_config.json
 src/config_merged.json
